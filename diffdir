@@ -1,0 +1,162 @@
+#!/bin/sh
+#
+# Compare two directories file by file
+# and optionally update diffing files
+#
+# by hookan@init.se, 2004
+#
+PATH=/bin:/usr/bin:/usr/local/bin
+
+DEBUG=0
+UPDATE=0
+RECURSE=0
+VERBOSE=0
+ANSWER=
+
+### Use correct echo method
+ECHO=echo
+ostype=`uname -s`
+test "$ostype" = "Linux" && ECHO="/bin/echo -e"
+test "$ostype" = "SunOS" && ECHO=/usr/bin/echo 
+test "$ostype" = "FreeBSD" && ECHO="echo -e" 
+
+
+#
+# Print usage message
+#
+usage() {
+  echo "Diff two directories file by file"
+  echo ""
+  echo "note: files that don't exist in both source and target dir"
+  echo "      will be silently ignored unless debug is used."
+  echo ""
+  echo "usage: diffdir [ -ruvyn ] [ -s sourcedir ] -t targetdir "
+  echo " -h Help"
+  echo " -d Debug"
+  echo " -r Recurse all subdirs"
+  echo " -s Sourcedir (defaults to current directory)"
+  echo " -t Targetdir is the other dir to compare with"
+  echo " -u Update files at destinationdir with files in sourcedir"
+  echo " -v Verbose diff"
+  echo " -y Answer yes on all updates"
+  echo " -n Answer no on all updates"
+  echo ""
+  echo "example:"
+  echo "  Compare all files and subdirs in the current dir with target dir"
+  echo "  and show the differing lines of each file, before asking to update the"
+  echo "  target file."
+  echo ""
+  echo "  # diffdir -r -v -u -t /my/target/dir"
+  echo ""
+  exit
+}
+
+display() {
+        $ECHO $*
+}
+
+#
+# Print debug message
+#
+debug() {
+  test "$DEBUG" -eq 1 && $ECHO "DEBUG: $*"
+}
+
+#
+# Print error message and exit
+#
+die() {
+    [ -z "$*" ] || $ECHO "ERROR: $*"
+    exit 1                      
+}
+
+#
+# Parse commandline parameters
+#
+parse_argv() {
+test $# -le 0 && usage
+while getopts dhruvyns:t: flag
+do
+        case $flag in
+        d)      DEBUG=1;;
+        h)      usage;;
+        r)      RECURSE=1;;
+        t)      DSTDIR="$OPTARG";;
+        s)      SRCDIR="$OPTARG";;
+        u)      UPDATE=1;;
+	v)	VERBOSE=1;;
+        y)      ANSWER=y;;
+        n)      ANSWER=n;;
+        esac
+done
+}
+
+compare_file() {
+  
+ dstfile=$DSTDIR/$srcfile
+ debug "comparing $srcfile to $dstfile"
+ if [ -f $dstfile ]; then
+   diff $srcfile $dstfile > /dev/null
+   if [ $? -eq 0 ]; then
+      display "OK:\t $srcfile"
+   else
+      display "DIFF:\t $srcfile"
+      test "$VERBOSE" -eq 1 && diff $srcfile $dstfile
+      if [ $UPDATE -ne 0 ]; then
+          debug "cp $srcfile $dstfile";
+          test -n "$CP" && $CP $srcfile $dstfile
+          diff $srcfile $dstfile > /dev/null
+          if [ $? -eq 0 ]; then
+            display "UPDATED: $dstfile"
+          else 
+             display "SKIPPED: $dstfile"
+          fi
+      fi	
+
+   fi
+
+ else
+   debug "MISSING:\t $srcfile"
+ fi
+
+}
+
+#
+# BEGIN MAIN
+#
+
+parse_argv $*
+
+debug "SRCDIR="$SRCDIR
+debug "DSTDIR="$DSTDIR
+
+CURRDIR=`pwd`
+
+test -n "$SRCDIR" && { 
+  cd $SRCDIR || die "$SRCDIR missing or not a directory" 
+}
+
+### Prompt before overwrite if $ANSWER=''
+CP="cp -i"
+[ "$ANSWER" = "y" ] && CP="cp"
+[ "$ANSWER" = "n" ] && CP=""
+
+### Parse files
+if [ $RECURSE -eq 0 ]; then
+  debug "NORMAL SEARCH"
+  for srcfile in *; do
+    compare_file
+  done
+else
+  debug "RECURSIVE SEARCH"
+  FILES=`find . -type f`
+  for srcfile in $FILES; do
+    compare_file 
+  done
+fi
+
+cd $CURRDIR
+
+#
+# END MAIN
+#
