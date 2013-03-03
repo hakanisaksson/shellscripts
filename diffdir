@@ -3,7 +3,7 @@
 # Compare two directories file by file
 # and optionally update diffing files
 #
-# by hookan@init.se, 2004
+# by Hakan Isaksson, 2004
 #
 PATH=/bin:/usr/bin:/usr/local/bin
 
