@@ -1,0 +1,279 @@
+#!/bin/bash
+#
+# Simplify creation of git repositories
+# by hakan.isaksson@init.se
+#
+# swedish characters encoded in UTF-8
+#
+GIT_SERVER=git.init.se
+GIT_USER=git
+GIT_GROUP=git
+GIT_ROOT=/git/projects
+GIT_INIT="git --bare init --shared=group"
+GIT_HOOKS=""
+TEMP_DIR=/tmp/.gittmp$$
+TEMPLATEDIR=~git/gitrepo.template
+
+DEBUG=0
+TEST=0
+YES=0
+REPO=""
+DESC=""
+OWNER=""
+
+PATH=/bin:/sbin:/usr/sbin:/usr/bin
+CFGFILE=`dirname $0`"/"`basename $0`".cfg"
+
+usage() {
+    printf "gitrepo is a script to simplify the creation of git repositories.\n"
+    printf "It displays every command, and asks before running it.\n"
+    printf "It loads defaults from $0.cfg if it exists.\n"
+    printf "usage:\n  $0 <flags> [action] <repo>\n"
+    printf "\nactions:\n"
+    printf "  create \tCreate git repository.\n"
+    printf "\noptions:\n"
+    printf "  -d \t\tDebug\n"
+    printf "  -g \t\tChange GIT_GROUP\n"
+    printf "  -h \t\tHelp\n"
+    printf "  -k \t\tEnable HOOK. Use \"hook1 hook2\" for enabling more than one.\n"
+    printf "  -m \"comment\"\tDescription comment (for gitweb)\n"
+    printf "  -o <owner>\tOwner (for gitweb)\n"
+    printf "  -r <rootdir>\tChange root directory. Default is $GIT_ROOT\n"
+    printf "  -s \t\tChange GIT_SERVER\n"
+    printf "  -t <dir>\tChange TEMPLATEDIR\n"
+    printf "  -u <user>\tChange GIT_USER\n"
+    printf "  -y \t\tYes to all questsions.\n"
+    printf "\nexamples:\n"
+    printf "  $0 create\n"
+    printf "  $0 -o isahn -m \"project description\" create mytestrepo\n"
+    printf "  $0 -r /git/projects/test create mytestrepo\n"
+    exit 2
+}
+
+err() {
+    echo "ERROR: $*"
+    exit 1
+}
+
+debug() {
+  test "$DEBUG" -eq 1 && echo "[DEBUG]" $*
+}
+
+msg() {
+  echo $*
+}
+
+ask_yn() {
+    ANS=""
+    if [ $TEST -eq 1 ]; then
+        echo -e "# $*"
+        return 1
+    fi
+    echo -e "$* [Y/n] \c"
+    [ "$YES" -eq 0 ] && read  ANS < /dev/tty
+    test -z "$ANS" && ANS=Y
+    if test `expr "$ANS" : [Yy]` -eq 1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+ask() {
+    [ $DEBUG -ge 1 ] && set -x
+    ANS=""
+    local val=$1
+    shift 1
+    echo -e "$* [$val]: \c"
+    [ "$YES" -eq 0 ] && read ANS
+    test -z "$ANS" && ANS=$val
+    ask_ret=$ANS
+}
+
+exists() {
+    type $1 > /dev/null 2>&1
+    return $?
+}
+
+#
+# Initial Checks
+#
+init_checks() {
+
+#    case `whoami` in
+#        $GIT_USER) AS_USER="sh -c ";;
+#        root) AS_USER="su $GIT_USER -s /bin/bash -c";;
+#        *) err "You have to be root or $GIT_USER to create git repositories.";;
+#    esac
+#    debug "AS_USER=$AS_USER"
+    EMAIL=`git config --global user.email`
+    test -z "$EMAIL" && err "Missing global user.email. Use git config --global user.email \"$GIT_USER@$HOSTNAME\""
+    FNAME=`git config --global user.name`
+    test -z "$FNAME" && err "Missing global user.name. Use git config --global user.name \"$GIT_USER\""
+
+    ping -c 1 $GIT_SERVER  > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        err "Failed to lookup GIT_SERVER $GIT_SERVER, check your config?"
+    fi
+}
+
+
+#
+# Copy files from TEMPLATEDIR and checkin as initial commit
+# for easy cloning
+#
+template_repo() {
+    local REPO=$1
+
+    msg "### Creating initial commit"
+    if [ ! -d "$TEMP_DIR" ]; then
+        if ask_yn "mkdir $TEMP_DIR"; then
+            mkdir $TEMP_DIR
+        fi
+    fi
+
+    msg "cd $TEMP_DIR"
+    cd $TEMP_DIR || err "Failed to change dir to $TEMP_DIR"
+
+    if ask_yn "cp -r $TEMPLATEDIR/* $TEMP_DIR"; then
+        cp -r $TEMPLATEDIR/* $TEMP_DIR
+    fi
+    if ask_yn "git init"; then
+        git init
+    fi
+    if ask_yn "git -v add *"; then
+        git add -v *
+    fi
+    if ask_yn "git commit -m 'initial commit'"; then
+        git commit -m 'initial commit'
+    fi
+    if ask_yn "git remote add origin $GIT_USER@$GIT_SERVER:$GIT_REPO"; then
+        git remote add origin $GIT_USER@$GIT_SERVER:$GIT_REPO
+    fi
+    if ask_yn "git push origin master"; then
+        git push origin master
+    fi
+
+    if [ -d "$TEMP_DIR" ]; then
+        if ask_yn "rm -rf $TEMP_DIR"; then
+            rm -rf $TEMP_DIR
+        fi
+    fi
+
+}
+
+#
+# Create git repository
+#
+create_repo() {
+    local REPO=$1
+    CWD=`pwd`
+
+    debug "create_repo $REPO"    
+
+    ### Sanity checks
+    exists "git" || err "Can't find git on this server. \"yum install git\" perhaps?"
+    [ ! -d "$GIT_ROOT" ] && err "GIT_ROOT $GIT_ROOT does not exists!"
+    [ ! -w "$GIT_ROOT" ] && err "You don't have write permission to $GIT_ROOT"
+    [ ! -d "$TEMPLATEDIR" ] && err "TEMPLATEDIR $TEMPLATEDIR does not exist. You should create this directory and place at least one file in it, that is included with the initial commit."
+    init_checks
+
+    ### Get some info
+    ask "$REPO" "Repository name?"
+    REPO=$ask_ret
+    [ -z "$REPO" ] && err "Can't create repo without name."
+    ask "$DESC" "Description?"
+    DESC=$ask_ret
+    ask "$OWNER" "Owner?"
+    OWNER=$ask_ret
+    [ -z "$OWNER" ] && err "You must set an owner, write userid or fullname."
+
+    ### Create the repo
+    GIT_REPO="$GIT_ROOT/${REPO}.git"
+    [ -d "$GIT_REPO" ] && err "Git repo $GIT_REPO already exists."
+
+    if ask_yn "mkdir -p $GIT_REPO"; then
+        mkdir -p $GIT_REPO
+    fi
+
+    if ask_yn "cd $GIT_REPO && $GIT_INIT"; then
+        cd $GIT_REPO && $GIT_INIT
+    fi
+    msg "### Created $GIT_REPO"
+
+    ### Add description for gitweb
+    GRD="$GIT_REPO/description"
+    if ask_yn "Update $GRD?"; then
+        test ! -f "$GRD" && err "Can't find $GRD"
+        echo "$DESC" > $GRD
+        msg "tail $GRD"
+        tail $GRD
+    fi
+
+    ### Add owner for gitweb
+    CFG="$GIT_REPO/config"
+    if ask_yn "Update $CFG?"; then
+        test -f "$CFG" || err "Can't find $CFG"
+        echo "[gitweb]" >> $CFG
+        echo "        owner = $OWNER" >> $CFG
+        msg "tail -2 $CFG"
+        tail -2 $CFG
+    fi
+
+    ### Enable hooks if GIT_HOOKS
+    if [ -n "$GIT_HOOKS" ]; then
+        for HOOK in $GIT_HOOKS; do
+            HOOKPATH=$GIT_REPO/hooks
+            test -e "$HOOKPATH/$HOOK.sample" && {
+                if ask_yn "mv $HOOKPATH/$HOOK.sample $HOOKPATH/$HOOK"; then
+                    mv $HOOKPATH/$HOOK.sample $HOOKPATH/$HOOK
+                fi
+            }
+        done
+    fi
+    ### Ensure $GIT_USER owns everything, if run as root
+    if [ ! `whoami` = "$GIT_USER" ]; then
+        if ask_yn "chown -R $GIT_USER:$GIT_GROUP $GIT_REPO"; then
+            chown -R $GIT_USER:$GIT_GROUP $GIT_REPO
+        fi
+    fi
+
+    template_repo $GIT_REPO
+    msg "### Done."
+    msg "### Checkout with:"
+    msg " git clone $GIT_USER@$GIT_SERVER:$GIT_REPO"
+    cd $CWD
+}
+
+#
+# Main
+#
+test -e $CFGFILE && {
+    source $CFGFILE
+}
+
+while getopts dg:hk:m:o:r:s:t:u:y opt
+do
+    case $opt in
+        d)  DEBUG=1;;
+        g)  GIT_GROUP=$OPTARG;;
+        h)  usage;;
+        k)  GIT_HOOKS=$OPTARG;;
+        m)  DESC=$OPTARG;;
+        o)  OWNER=$OPTARG;;
+        r)  GIT_ROOT=$OPTARG;;
+        s)  GIT_SERVER=$OPTARG;;
+        t)  TEMPLATEDIR=$OPTARG;;
+        u)  GIT_USER=$OPTARG;;
+        y)  YES=1;;
+    esac
+done
+shift $(($OPTIND -1))
+ACTION=$1
+REPO=$2
+
+case $ACTION in
+    create) create_repo $REPO;;
+    *) usage;;
+esac
+
