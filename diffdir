@@ -11,6 +11,7 @@ DEBUG=0
 UPDATE=0
 RECURSE=0
 VERBOSE=0
+MISSING=0
 ANSWER=
 
 ### Use correct echo method
@@ -33,6 +34,7 @@ usage() {
   echo "usage: diffdir [ -ruvyn ] [ -s sourcedir ] -t targetdir "
   echo " -h Help"
   echo " -d Debug"
+  echo " -m Show missing files"
   echo " -r Recurse all subdirs"
   echo " -s Sourcedir (defaults to current directory)"
   echo " -t Targetdir is the other dir to compare with"
@@ -75,11 +77,12 @@ die() {
 #
 parse_argv() {
 test $# -le 0 && usage
-while getopts dhruvyns:t: flag
+while getopts dhmruvyns:t: flag
 do
         case $flag in
         d)      DEBUG=1;;
         h)      usage;;
+        m)      MISSING=1;;
         r)      RECURSE=1;;
         t)      DSTDIR="$OPTARG";;
         s)      SRCDIR="$OPTARG";;
@@ -116,7 +119,11 @@ compare_file() {
    fi
 
  else
-   debug "MISSING:\t $srcfile"
+   if [ $MISSING -eq 0 ]; then
+       debug "MISSING:\t $srcfile"
+   else
+       display "MISSING: $srcfile"
+   fi
  fi
 
 }
