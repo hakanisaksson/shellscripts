@@ -3,7 +3,6 @@
 # Simplify creation of git repositories
 # by hakan.isaksson@init.se
 #
-# swedish characters encoded in UTF-8
 #
 GIT_SERVER=git.init.se
 GIT_USER=git
@@ -100,12 +99,6 @@ exists() {
 #
 init_checks() {
 
-#    case `whoami` in
-#        $GIT_USER) AS_USER="sh -c ";;
-#        root) AS_USER="su $GIT_USER -s /bin/bash -c";;
-#        *) err "You have to be root or $GIT_USER to create git repositories.";;
-#    esac
-#    debug "AS_USER=$AS_USER"
     EMAIL=`git config --global user.email`
     test -z "$EMAIL" && err "Missing global user.email. Use git config --global user.email \"$GIT_USER@$HOSTNAME\""
     FNAME=`git config --global user.name`
