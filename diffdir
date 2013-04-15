@@ -13,6 +13,7 @@ RECURSE=0
 VERBOSE=0
 MISSING=0
 ANSWER=
+IGNORE=
 
 ### Use correct echo method
 ECHO=echo
@@ -28,27 +29,34 @@ test "$ostype" = "FreeBSD" && ECHO="echo -e"
 usage() {
   echo "Diff two directories file by file"
   echo ""
-  echo "note: files that don't exist in both source and target dir"
-  echo "      will be silently ignored unless debug is used."
+  echo "note:"
+  echo "  Files that don't exist in both source and target dir"
+  echo "  will be silently ignored unless -m flag is used."
+  echo "  To view files missing from soruce dir you need to swap source and targetdir."
   echo ""
   echo "usage: diffdir [ -ruvyn ] [ -s sourcedir ] -t targetdir "
-  echo " -h Help"
-  echo " -d Debug"
-  echo " -m Show missing files"
-  echo " -r Recurse all subdirs"
-  echo " -s Sourcedir (defaults to current directory)"
-  echo " -t Targetdir is the other dir to compare with"
-  echo " -u Update files at destinationdir with files in sourcedir"
-  echo " -v Verbose diff"
-  echo " -y Answer yes on all updates"
-  echo " -n Answer no on all updates"
+  echo "  -d Debug"
+  echo "  -h Help"
+  echo "  -i <pattern> Ignore paths matching pattern"
+  echo "  -m Show files missing from target dir"
+  echo "  -r Recurse all subdirs"
+  echo "  -s <sourcedir> (defaults to current directory)"
+  echo "  -t <targetdir> is the other dir to compare with"
+  echo "  -u Update files at destinationdir with files in sourcedir"
+  echo "  -v Verbose diff"
+  echo "  -y Answer yes on all updates"
+  echo "  -n Answer no on all updates"
   echo ""
-  echo "example:"
+  echo "examples:"
   echo "  Compare all files and subdirs in the current dir with target dir"
   echo "  and show the differing lines of each file, before asking to update the"
-  echo "  target file."
+  echo "  target file:"
   echo ""
-  echo "  # diffdir -r -v -u -t /my/target/dir"
+  echo "  # diffdir -r -t /my/target/dir -v -u"
+  echo ""
+  echo "  Recursively compare target dir, but ignore any files in .svn dirs,"
+  echo "  and show files missing from target dir:"
+  echo "  # diffdir -r -t /my/target/dir -i .svn -m"
   echo ""
   exit
 }
@@ -77,11 +85,12 @@ die() {
 #
 parse_argv() {
 test $# -le 0 && usage
-while getopts dhmruvyns:t: flag
+while getopts dhi:mruvyns:t: flag
 do
         case $flag in
         d)      DEBUG=1;;
         h)      usage;;
+        i)      IGNORE="$OPTARG";;
         m)      MISSING=1;;
         r)      RECURSE=1;;
         t)      DSTDIR="$OPTARG";;
@@ -122,7 +131,7 @@ compare_file() {
    if [ $MISSING -eq 0 ]; then
        debug "MISSING:\t $srcfile"
    else
-       display "MISSING: $srcfile"
+       test ! -d "$dstfile" && display "MISSING: $srcfile"
    fi
  fi
 
@@ -150,17 +159,19 @@ CP="cp -i"
 
 ### Parse files
 if [ $RECURSE -eq 0 ]; then
-  debug "NORMAL SEARCH"
-  for srcfile in *; do
-    compare_file
-  done
+  DEPTH="-maxdepth 1"
 else
-  debug "RECURSIVE SEARCH"
-  FILES=`find . -type f`
-  for srcfile in $FILES; do
-    compare_file 
-  done
+  DEPTH=""
 fi
+debug "DEPTH=$DEPTH"
+if [ -n "$IGNORE" ]; then
+    FILES=`find . $DEPTH -type f |sed 's/^.\///' | grep -v $IGNORE`
+else
+    FILES=`find . $DEPTH -type f |sed 's/^.\///'`
+fi
+for srcfile in $FILES; do
+    compare_file
+done
 
 cd $CURRDIR
 
