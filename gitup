@@ -1,0 +1,403 @@
+#!/bin/sh
+# Git update
+# by Håkan Isaksson, Init AB
+#
+
+ALL=0        ### Update all local branches even if they should not be
+DEBUG=0      ### Debug mode
+STATUS=0     ### List branch status
+REBASE=0     ### Rebase local branches if possible
+UPDATE=0     ### Pull (merge) branches if possible
+PRUNE=1      ### fetch with --prune
+TEST=0       ### Testmode
+
+CURRENT=""   ### Current branch
+BRANCHES=""  ### List of local branches
+REMOTE=""    ### Remote origin name
+REMOTES=""   ### List of remote origins
+SWITCHED=0   ### Switched branch with checkout?
+
+COLORS=1     ### Use color terminal
+RED="\e[0;31m"
+GREEN="\e[0;32m"
+LGREEN="\e[1;32m"
+YELLOW="\e[0;33m"
+LYELLOW="\e[1;33m"
+BLUE="\e[1;34m"
+MAG="\e[0;35m"
+LMAG="\e[1;35m"
+DEF="\e[0m"
+
+usage() {
+  echo "Gitup shows status for each local branch "
+  echo "and can update all local branches with pull or rebase"
+  echo "Notice: Only works if matching local and remote branches have the same name"
+  echo "usage:"
+  echo "options:"
+  echo "   -a     Update all branches (even those that are ahead)"
+  echo "   -c     Colors off"
+  echo "   -d     Debug mode"
+  echo "   -h     Help"
+  echo "   -o     Select origin (if more than one)"
+  echo "   -r     Update branches (with pull --rebase)"
+  echo "   -t     Test mode"
+  echo "   -u     Update branches (with pull)"
+  echo ""
+  exit 2
+}
+
+msg() {
+    echo -e $*
+}
+
+err() {
+    msg "ERROR: $*"
+    exit 1
+}
+
+debug() {
+    [ $DEBUG -ge 1 ] && msg "DEBUG: $*"
+}
+
+exists() {
+    type $1 > /dev/null 2>&1
+    return $?
+}
+
+# Check if elem $1 is in list $2 $3 $4 ..
+# return 0 if true
+# return 1 if false
+is_in() {
+    local elem=$1
+    local found=1
+    shift
+    for e in $@; do
+        test "$e" = "$elem" && found=0
+    done
+#    debug "is_in: return $found"
+    return $found
+}
+
+#
+# Check for special operations that affect status of the current branch
+#
+check_special() {
+    local g=$TOPDIR/.git
+    local r=""   ### remote origin name
+    local b=""   ### local branch name
+    CHECK_SPECIAL_MSG=""
+
+    if [ -f "$g/rebase-merge/interactive" ]; then
+        r="rebasing" # -1
+        b="$(cat "$g/rebase-merge/head-name")"
+    elif [ -d "$g/rebase-merge" ]; then
+        r="rebasing" # -m
+        b="$(cat "$g/rebase-merge/head-name")"
+    else
+        if [ -d "$g/rebase-apply" ]; then
+            if [ -f "$g/rebase-apply/rebasing" ]; then
+                r="rebasing"
+            elif [ -f "$g/rebase-apply/applying" ]; then
+                r="AM"
+            else
+                r="rebasing-am"
+            fi
+        elif [ -f "$g/MERGE_HEAD" ]; then
+            r="merging"
+        elif [ -f "$g/CHERRY_PICK_HEAD" ]; then
+            r="cherry-picking"
+        elif [ -f "$g/REVERT_HEAD" ]; then
+            r="reverting"
+        elif [ -f "$g/BISECT_LOG" ]; then
+            r="bisecting"
+        fi
+           
+
+    fi
+    test -n "$b" && b=`basename $b`
+    CHECK_SPECIAL_BRANCH=$b
+    test -n "$r" && CHECK_SPECIAL_MSG=$RED""$r""$DEF
+}
+
+#
+# Check if current branch is clean for switching 
+#
+check_current() {
+    local r=$1   ### remote origin name
+    local b=$2   ### local branch name
+
+    check_special
+    
+#    CHECK_BRANCH=$b
+
+    if [ -n "$CHECK_SPECIAL_MSG" ]; then
+        CHECK_CURRENT_MSG=$CHECK_SPECIAL_MSG
+        CHECK_CURRENT=1
+        debug "CHECK_SPECIAL_MSG=$CHECK_SPECIAL_MSG"
+    else
+        CHECK_CURRENT=0
+
+        debug "check_current: git diff --exit-code --quiet"
+        debug "check_current: git diff --cached --exit-code --quiet"
+        git diff --exit-code --quiet
+        local unstaged=$?
+        git diff --cached --exit-code --quiet
+        local staged=$?
+        debug "unstaged=$unstaged staged=$staged"
+        if [ $staged -ne 0 -o $unstaged -ne 0 ]; then
+            CHECK_CURRENT_MSG=$RED"uncommited changes"$DEF
+            CHECK_CURRENT=1
+        fi
+    fi
+}
+
+#
+# Check if branch $b differs from remote $r/$b
+# return 1 if they differ
+# return 0 if up to date
+#
+branch_diff() {
+    local r=$1  ### remote origin name
+    local b=$2  ### local branch name
+    debug "branch_diff: git diff $b..$r/$b --quiet"
+    git diff $b..$r/$b --quiet
+    ret=$?
+    #debug "branch_diff: return $ret"
+    return $ret
+}
+
+#
+# Count the number of commits a branch is ahead or behind it's remote
+# note: remote and local branch must have the same name
+# sets global $NUM_COMMITS to negative number if behind
+# returns number of commits as a positive number regardless if it's behind or ahead
+# (because bash functions can't handle negative numbers)
+num_commits() {
+    local r=$1    ### remote origin name
+    local b=$2    ### local branch name
+    NUM_COMMITS=0
+    debug "num_commits: git log --oneline $r/$b..$b | wc -l"
+    debug "num_commits: git log --oneline $b..$r/$b | wc -l"
+    local num_ahead=`git log --oneline $r/$b..$b | wc -l | awk '{print $1}'`
+    local num_behind=`git log --oneline $b..$r/$b | wc -l | awk '{print $1}'`
+    if [ "$num_ahead" !=  "0" ]; then
+        NUM_COMMITS_MSG="${YELLOW}$num_ahead commits ahead of $r/$b${DEF}"
+        NUM_COMMITS=$num_ahead
+        return $num_ahead
+    elif [ "$num_behind" != "0" ]; then
+        NUM_COMMITS_MSG="${YELLOW}$num_behind commits behind $r/$b${DEF}"
+        let NUM_COMMITS=$NUM_COMMITS-$num_behind
+        return $num_behind
+    fi
+    debug "num_commits: NUM_COMMITS=$NUM_COMMITS"
+    return 0
+}
+
+#
+# Checkout and update the branch with pull or pull --rebase
+#
+update_branch() {
+    local r=$1
+    local b=$2
+    local updated=1
+    if [ $UPDATE -ne 0 ]; then
+        #msg "Updating ${MAG}${b}${DEF}..."
+        msg "Updating ${b}..."
+        debug "git checkout $b"
+        test "$TEST" -ne 1 && git checkout $b
+        SWITCHED=1
+        if [ $REBASE -ne 0 ]; then
+            debug "git pull --rebase"
+            test "$TEST" -ne 1 && git pull --rebase
+            updated=0
+        else
+            debug "git pull"
+            test "$TEST" -ne 1 && git pull 
+            updated=0
+        fi
+    fi
+    return $updated
+}
+
+#
+# Print branch and status msg
+#
+display_branch() {
+    local b=$1 ### branch name
+    shift
+    local msg=$*
+    if [ "$b" = "$CURRENT" ]; then
+        printf "${LYELLOW}*${DEF} ${MAG}%-20s${DEF} ( $msg )\n" $b
+    else
+        printf "  ${MAG}%-20s${DEF} ( $msg )\n" $b
+    fi
+}
+
+#
+# pull or rebase local branches
+#
+update() {
+
+    local r=$1
+    local b=$CURRENT
+    local fetchopts=
+    test $PRUNE -ne 0 && fetchopts=" --prune" 
+    debug "git fetch $r $fetchopts"
+    git fetch $r $fetchopts || err "git fetch failed"
+
+    check_current $r $b
+    
+    if [ $CHECK_CURRENT -ne 0 -a $UPDATE -eq 1 ]; then
+        if [ -n "$CHECK_SPECIAL_MSG" ]; then
+            err "Current branch is $CHECK_CURRENT_MSG, not safe to switch branch. Abort or finish first."
+        else
+            err "Current branch has $CHECK_CURRENT_MSG, not safe to switch branch. Check-in or stash your changes first."
+        fi
+    fi
+    for b in $BRANCHES; do
+        if is_in $b $RBRANCHES; then
+
+            if ! branch_diff $r $b; then
+                num_commits $r $b
+                if [ $NUM_COMMITS -lt 0 -o $ALL -eq 1 ]; then
+                    if update_branch $r $b; then
+                        debug "Updating $b...done."
+                    fi
+                else
+                    debug "update: skipping $b because it's ahead. use -a to force update"
+                fi
+            fi
+
+        fi
+
+    done
+    if [ $UPDATE -eq 1 -a $SWITCHED -eq 1 ]; then
+        test "$TEST" -ne 1 && {
+            debug "git checkout $CURRENT"
+            git checkout $CURRENT
+        }
+    fi
+
+}
+
+#
+# List status for each local branch
+#
+status() {
+    local r=$1
+    local b=$CURRENT
+    debug "git fetch $r"
+    git fetch $r|| err "git fetch failed"
+
+    check_current $r $b
+    
+
+    for b in $BRANCHES; do
+        if is_in $b $RBRANCHES; then
+
+            MSG="status unknown"
+            if ! branch_diff $r $b; then
+                MSG="differ"
+                num_commits $r $b
+                test -n "$NUM_COMMITS_MSG" && MSG=$NUM_COMMITS_MSG
+                
+            else
+                MSG=$LGREEN"up to date"$DEF
+            fi
+#            if [ "$b" = "$CHECK_SPECIAL_BRANCH" -a "$CHECK_CURRENT_MSG" != "" ]; then
+            if [ "$b" = "$CURRENT" -a "$CHECK_CURRENT_MSG" != "" ]; then
+                MSG=$CHECK_CURRENT_MSG
+            fi
+        else
+            MSG=$RED"has no remote on $REMOTE"$DEF
+        fi
+        display_branch $b $MSG
+
+
+    done
+}
+
+#
+# Verify that we know which remote to work with
+#
+check_remotes() {
+    local r=""
+
+    test -z "$REMOTES" && err "No remotes detected"
+
+    if [ -z "$REMOTE" ]; then
+        
+        if [ `echo $REMOTES | wc -w` -gt 1 ]; then
+            err "Multiple remotes detected ($REMOTES). Use -o <remote> to specify remote."
+            exit 1
+        else
+            REMOTE=$REMOTES
+        fi
+    else # remote was given with -o $REMOTE
+        if ! is_in $REMOTE $REMOTES; then
+            err "unknown remote \"$REMOTE\", known remote(s)=$REMOTES"
+        fi
+    fi
+    
+}
+
+#
+# Main
+#
+while getopts acdho:rtu opt
+do
+    case $opt in
+        a) ALL=1;;
+        c) COLORS=0;;
+        d) DEBUG=1;;
+        h) usage;;
+        o) REMOTE=$OPTARG;;
+        r) REBASE=1;;
+        t) TEST=1;;
+        u) UPDATE=1;;
+        *) usage;;
+        esac
+done
+shift $(($OPTIND -1))
+test $# -le 0 && STATUS=1
+
+
+#
+# Gather info
+#
+exists "git" || err "git not installed?"
+TOPDIR=`git rev-parse --show-toplevel`
+test $? -ne 0 && err "git rev-parse failed"
+CURRENT=`git rev-parse --abbrev-ref HEAD`
+test $? -ne 0 && err "git rev-parse failed"
+BRANCHES=`git branch | sed 's/*//' |grep -v "\(no branch\)"| awk '{print $1}'`
+test $? -ne 0 && err "git branch failed"
+REMOTES=`git remote`
+test $? -ne 0 && err "git remote failed"
+
+debug "TOPDIR=$TOPDIR"
+debug "CURRENT=$CURRENT"
+debug "BRANCHES=$BRANCHES"
+debug "REMOTES=$REMOTES"
+
+check_remotes
+RBRANCHES=`git branch -r | grep $REMOTE|awk -F\/ '{print $2}' | grep -v "\->"`
+debug "RBRANCHES=$RBRANCHES"
+
+test $COLORS -eq 0 && {
+    RED=""
+    GREEN=""
+    LGREEN=""
+    YELLOW=""
+    LYELLOW=""
+    BLUE=""
+    MAG=""
+    LMAG=""
+    DEF=""
+}
+
+test $REBASE -eq 1 && UPDATE=1  ### rebase implies update
+test $UPDATE -eq 1 && update $REMOTE
+test $STATUS -eq 1 && status $REMOTE
+
+

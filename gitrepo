@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Simplify creation of git repositories
-# by hakan.isaksson@init.se
+# by Hakan Isaksson, INIT AB
 #
 #
 GIT_SERVER=git.init.se
