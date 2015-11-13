@@ -27,7 +27,7 @@ gitup example:
    testbranch           ( 1 commits behind origin/testbranch )
 ```
 
-for_git example:
+forgit example:
 ----------------
 ```shell
 $ forgit gitup
