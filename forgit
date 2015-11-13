@@ -1,20 +1,20 @@
 #!/bin/sh
 #
-# for_git = for each git repository do <command> given in $*
+# forgit = for each git repository do <command> given in $*
 # by Håkan Isaksson, INIT AB
 #
 test -z "$1" && {
     echo "Short description:"
-    echo "for_git = for each git repository found do <command> given in $*"
+    echo "forgit = for each git repository found do <command> given in $*"
     echo "Description:"
     echo "   Searches recursively for git repositories (ie any dir with a .git directory) "
     echo "   and cd to that directory and run the command and arguments given to this script"
     echo "usage:"
-    echo "   for_git <command>"
+    echo "   forgit <command>"
     echo "examples:"
-    echo "   for_git gitup" 
-    echo "   for_git gitup -u" 
-    echo "   for_git git status -s"
+    echo "   forgit gitup" 
+    echo "   forgit gitup -u" 
+    echo "   forgit git status -s"
     exit 2
 }
 

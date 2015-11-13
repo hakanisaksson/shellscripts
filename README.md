@@ -4,7 +4,7 @@ shellscripts
 Some useful sysadmin scripts...
 
 * diffdir - run diff recursively to compare two directories
-* for_git - run abitrary command for each git repository found
+* forgit - run abitrary command for each git repository found
 * gitup   - pull all branches that are behind, inspired by git-up
 * gitrepo - user friendly script for creating bare git-repositories
 
@@ -30,7 +30,7 @@ gitup example:
 for_git example:
 ----------------
 ```shell
-$ for_git gitup
+$ forgit gitup
 for ./ocsinventory/: gitup
 * master               ( 5 commits ahead of origin/master )
 for ./testrepo/: gitup
