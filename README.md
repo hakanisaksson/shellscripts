@@ -44,7 +44,7 @@ for ./verktygsstod/git/: gitup
 Install git-prompt.sh
 ----------------
 Save git-prompt-sh as ~/.git-prompt.sh
-Add to ~/.bashrc or eqivalent:
+Add to ~/.bashrc or equivalent:
 
 ```
 [ -f  ~/.git-prompt.sh ] && {
