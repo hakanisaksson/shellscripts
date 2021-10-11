@@ -54,3 +54,4 @@ Add to ~/.bashrc or equivalent:
 
 ```
 Original source: https://github.com/git/git/blob/master/contrib/completion/git-prompt.sh
+
