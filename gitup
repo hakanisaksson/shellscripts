@@ -145,7 +145,7 @@ check_current() {
         local staged=$?
         debug "unstaged=$unstaged staged=$staged"
         if [ $staged -ne 0 -o $unstaged -ne 0 ]; then
-            CHECK_CURRENT_MSG=$RED"uncommited changes"$DEF
+            CHECK_CURRENT_MSG=$RED"uncommitted changes"$DEF
             CHECK_CURRENT=1
         fi
     fi
