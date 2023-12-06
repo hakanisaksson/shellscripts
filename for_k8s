@@ -1,0 +1,29 @@
+#!/bin/bash
+
+test -z "$1" && {
+    echo "Short description:"
+    echo "for_k8s = for each k8s cluster with a ~/.kube/*.kubeconfig found run <command> given in $*"
+    echo "Description:"
+    echo "   Searches recursively for '*.kubeconfig.yaml' in ~/.kube/ directory "
+    echo "   and sets KUBECONFIG before running the command and arguments given to this script"
+    echo "usage:"
+    echo "   $0 <command>"
+    echo "examples:"
+    echo "   $0 kubectl get nodes"
+    exit 2
+}
+
+CLUSTERS=`find ~/.kube/ -maxdepth 1 -type f -name '*.kubeconfig*' `
+
+test -z "$CLUSTERS" && {
+    echo "No cluster *.kubeconfig.yaml found"
+    exit 1
+}
+
+for C in $CLUSTERS; do
+    BN=`basename $C`
+    CN=$(echo $BN | awk -F\. '{print $1}' )
+    echo for $CN: $*
+    export KUBECONFIG=$C
+    ($*)
+done

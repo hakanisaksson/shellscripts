@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# Simple script to run arbitrary command on all nodes within a k8s cluster using ssh
+# (assuming you have ssh-access to do so)
+
+test -z "${SSH_KEY}" && SSH_KEY=~/.ssh/id_rsa
+test -z "${SSH_USER}" && SSH_USER=${USER}
+
+DOMAIN=$(cat /etc/resolv.conf |grep ^search |awk '{print $2}')
+DEBUG=0
+
+test -z "$1" && {
+    echo "Short description:"
+    echo "for_node = for each node in current k8s cluster do <command> given in $*"
+    echo "Description:"
+    echo "   Searches recursively for '*.kubeconfig.yaml' in current directory "
+    echo "   and sets KUBECONFIG before running the command and arguments given to this script"
+    echo "usage:"
+    echo "   $0 <command>"
+    echo "examples:"
+    echo "   $0 kubectl get nodes"
+    exit 2
+}
+
+msg() {
+    echo -e $*
+}
+
+err() {
+    msg "ERROR: $*"
+    exit 1
+}
+
+debug() {
+    [ $DEBUG -ge 1 ] && msg "DEBUG: $*"
+}
+
+
+NODES=`kubectl get nodes --no-headers |awk '{print $1}'`
+
+test -z "$NODES" && {
+    echo "No nodes found"
+    exit 1
+}
+test -e "$SSH_KEY" ||err "Missing SSH_KEY ${SSH_KEY}"
+
+for N in $NODES; do
+    kel=$(echo $N| cut -c 1-3)
+    bn=$(echo $N| awk -F \. '{print $1}')
+    fn="${bn}.${DOMAIN}"
+    cmd="ssh -i ${SSH_KEY} ${SSH_USER}@${fn} $@"
+    debug "$cmd"
+    echo for $fn: $*
+    $cmd
+done
