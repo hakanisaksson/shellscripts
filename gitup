@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Git update
 # by Håkan Isaksson, Init AB
 #
@@ -139,9 +139,9 @@ check_current() {
 
         debug "check_current: git diff --exit-code --quiet"
         debug "check_current: git diff --cached --exit-code --quiet"
-        git diff --exit-code --quiet
+        git diff --exit-code --quiet 2>/dev/null
         local unstaged=$?
-        git diff --cached --exit-code --quiet
+        git diff --cached --exit-code --quiet 2>/dev/null
         local staged=$?
         debug "unstaged=$unstaged staged=$staged"
         if [ $staged -ne 0 -o $unstaged -ne 0 ]; then
@@ -160,7 +160,7 @@ branch_diff() {
     local r=$1  ### remote origin name
     local b=$2  ### local branch name
     debug "branch_diff: git diff $b..$r/$b --quiet"
-    git diff $b..$r/$b --quiet
+    git diff $b..$r/$b --quiet 2>/dev/null
     ret=$?
     #debug "branch_diff: return $ret"
     return $ret
